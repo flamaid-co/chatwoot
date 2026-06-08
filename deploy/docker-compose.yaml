@@ -58,6 +58,12 @@ services:
     cpus: 2.0
     pids_limit: 512
     oom_score_adj: 500
+    # Phase B: also on the proxy network so nginx-proxy reaches us by alias
+    networks:
+      default: {}
+      proxy:
+        aliases:
+          - chatwoot-rails
 
   sidekiq:
     <<: *base
@@ -113,3 +119,11 @@ volumes:
   storage_data:
   postgres_data:
   redis_data:
+
+networks:
+  default: {}
+  proxy:
+    # Supabase/nginx-proxy network; rails joins it so the proxy can reach
+    # http://chatwoot-rails:3000 by name. Only rails is exposed here.
+    external: true
+    name: supabase_default

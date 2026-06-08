@@ -100,27 +100,43 @@ Chatwoot's frontend is Vue, under `app/javascript/`. Edit there, commit on
 `flamaid`, push, and deploy with **build mode**. Keep edits minimal to keep
 upstream merges painless (see the project memory: "brand, don't fork the engine").
 
-## Phase B — make it public (HTTPS)
+## Phase B — public HTTPS — DONE (2026-06-08)
 
-1. DNS: `support.flamaid.com  A  91.98.91.232`
-2. Attach the rails container to the proxy network so nginx can reach it:
-   add to `docker-compose.yaml` (or a Phase-B override) under `rails:` —
-   ```yaml
-   networks: [default, supabase_default]
-   # and at file end:
-   # networks:
-   #   supabase_default:
-   #     external: true
-   ```
-   with a network alias `chatwoot-rails`.
-3. Issue the cert and install the server block:
+Live at **https://support.flamaid.com** (Let's Encrypt, proxied through the shared
+nginx-proxy to `chatwoot-rails:3000`). Steps actually taken, with the gotchas:
+
+1. **DNS** (Cloudflare): `support.flamaid.com A 91.98.91.232`, **proxy OFF / DNS-only**
+   (matches api/studio; needed for direct ACME + origin SSL termination).
+2. **Network**: rails joined `supabase_default` with alias `chatwoot-rails`
+   (see `docker-compose.yaml` networks). `docker compose up -d rails` to apply.
+3. **Cert** (ephemeral certbot, ECDSA, webroot — same as api):
    ```bash
-   docker exec nginx-proxy certbot certonly --webroot -w /var/www/certbot \
-     -d support.flamaid.com --email apps@flamaid.com --agree-tos -n
-   # add deploy/nginx/support.flamaid.com.conf into /root/flamusServer/nginx/nginx.conf
-   docker exec nginx-proxy nginx -s reload    # no recreate = no downtime for api/studio
+   docker run --rm \
+     -v /root/flamusServer/certbot/conf:/etc/letsencrypt \
+     -v /root/flamusServer/certbot/www:/var/www/certbot \
+     certbot/certbot certonly --webroot -w /var/www/certbot \
+     -d support.flamaid.com --key-type ecdsa \
+     --email apps@flamaid.com --agree-tos --no-eff-email -n
    ```
-4. Set `FRONTEND_URL=https://support.flamaid.com` in `.env` and restart rails.
+4. **nginx**: appended `deploy/nginx/support.flamaid.com.conf` to the host template,
+   synced into the container in-place, regenerated, validated, reloaded. See that
+   file's header for the **two critical gotchas**: HTTPS must `listen 4443` (host
+   maps 443→4443, non-root nginx), and `sed -i` breaks the file bind-mount (sync
+   via `docker exec ... cat >` instead).
+5. **FRONTEND_URL** = `https://support.flamaid.com` in `.env`, rails restarted.
+
+### Cert auto-renewal (set up 2026-06-08)
+
+There was NO renewal automation on this host (api/studio were issued manually).
+Added `/root/flamusServer/certbot/renew.sh` (runs `certbot renew` for ALL certs +
+`nginx -s reload`) on a **daily cron at 03:30**. `certbot renew` only acts within
+30 days of expiry. Dry-run validated for api + studio + support.
+
+### Safety protocol used (shared prod nginx)
+
+Only **appended** new server blocks (never touched api/studio); `nginx -t` before
+every reload; graceful `nginx -s reload` (no restart); backed up `nginx.conf`
+before each edit. api/studio verified alive (HTTP 401 = normal) after each step.
 
 ## Phase C — the Claude brain (future)
 
