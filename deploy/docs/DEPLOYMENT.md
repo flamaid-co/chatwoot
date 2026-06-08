@@ -51,6 +51,34 @@ docker compose run --rm rails bundle exec rails runner '
 > here and re-run; the Docker volumes (data) are independent of the compose path,
 > so plan a short maintenance window if migrating.
 
+## Resource isolation (CRITICAL — shared host with Supabase prod)
+
+The flamaid host also runs the **production Supabase backend** that the FlamAid
+emergency devices depend on. Chatwoot must never be able to affect it. Guardrails
+baked into `docker-compose.yaml`:
+
+- **Hard RAM caps**: rails/sidekiq 1.5G, postgres 1G, redis 512M → ~4.5G ceiling.
+  Even fully maxed, Supabase keeps ~25G of the 30G host.
+- **`memswap_limit == mem_limit`**: Chatwoot gets no swap; a runaway service
+  OOM-kills *itself* (and `restart: always` brings it back) instead of pressuring
+  the host.
+- **CPU + PIDs caps** and **`oom_score_adj: 500`**: under any host-wide memory
+  pressure the kernel kills Chatwoot containers FIRST (Supabase defaults to 0).
+- **Log rotation** (10M × 3 per container) so logs can't fill the disk.
+
+Host-level (applied once, outside this repo): an **8G swapfile** + `vm.swappiness=10`
+as a cushion that also protects Supabase (the host previously had 0 swap).
+
+Quick health/limits check:
+```bash
+docker stats --no-stream | grep chatwoot          # live usage vs limits
+free -h                                            # host RAM + swap
+curl -s http://localhost:3000/api                  # {queue_services, data_services} both "ok"
+```
+> After recreating the postgres container, the `/api` health may briefly report
+> `data_services: failing` until the first real query verifies the pool — it self-
+> heals on first use (login, etc.). Not an error.
+
 ## Updating Chatwoot (pull upstream)
 
 ```bash

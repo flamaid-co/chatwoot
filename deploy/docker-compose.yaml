@@ -1,5 +1,5 @@
-# FlamAid · Chatwoot production stack
-# -----------------------------------
+# FlamAid · Chatwoot production stack — HARDENED
+# -----------------------------------------------
 # Runs the OFFICIAL prebuilt image, pinned to the release this branch is based on.
 # Use this for fast deploys when you have NOT modified the source (UI/backend).
 #
@@ -7,19 +7,37 @@
 # build override so your changes are compiled into a custom image:
 #   docker compose -f docker-compose.yaml -f docker-compose.build.yaml up -d --build
 #
-# Notes vs upstream's docker-compose.production.yaml:
+# Co-hosted on the flamaid server alongside the CRITICAL Supabase prod stack, so
+# every Chatwoot service is RESOURCE-CAPPED and cannot starve Supabase:
+#  - hard RAM caps (rails/sidekiq 1.5G, postgres 1G, redis 512M = ~4.5G ceiling)
+#  - memswap_limit == mem_limit: no container swap; a runaway service OOM-kills
+#    itself (and restarts) instead of pressuring the host
+#  - cpu + pids caps; oom_score_adj=500 so the kernel kills Chatwoot FIRST under
+#    any host-wide memory pressure (Supabase containers default to 0)
+#  - log rotation so logs can't fill the disk
+# Host also has an 8G swapfile + vm.swappiness=10 as a cushion (protects Supabase).
+#
+# Other notes vs upstream's docker-compose.production.yaml:
 #  - image pinned to a version (not :latest) for reproducible deploys
-#  - postgres/redis host ports removed (they talk over the internal network only;
-#    avoids clashing with Supabase's 5432 on the flamaid host)
+#  - postgres/redis host ports removed (internal network only; avoids clashing
+#    with Supabase's 5432 on the host)
 #  - postgres uses pgvector (needed for the future Claude RAG brain)
+#  - `base` is an x-app anchor (not a service) so no stray container starts
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app: &base
+  image: chatwoot/chatwoot:v4.14.1
+  env_file: .env
+  volumes:
+    - storage_data:/app/storage
+  logging: *default-logging
 
 services:
-  base: &base
-    image: chatwoot/chatwoot:v4.14.1
-    env_file: .env
-    volumes:
-      - storage_data:/app/storage
-
   rails:
     <<: *base
     depends_on:
@@ -34,6 +52,12 @@ services:
     entrypoint: docker/entrypoints/rails.sh
     command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
     restart: always
+    mem_limit: 1536m
+    mem_reservation: 512m
+    memswap_limit: 1536m
+    cpus: 2.0
+    pids_limit: 512
+    oom_score_adj: 500
 
   sidekiq:
     <<: *base
@@ -46,6 +70,12 @@ services:
       - INSTALLATION_ENV=docker
     command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
     restart: always
+    mem_limit: 1536m
+    mem_reservation: 512m
+    memswap_limit: 1536m
+    cpus: 2.0
+    pids_limit: 512
+    oom_score_adj: 500
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -56,6 +86,13 @@ services:
       - POSTGRES_DB=chatwoot
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    logging: *default-logging
+    mem_limit: 1024m
+    mem_reservation: 256m
+    memswap_limit: 1024m
+    cpus: 1.5
+    pids_limit: 256
+    oom_score_adj: 500
 
   redis:
     image: redis:alpine
@@ -64,6 +101,13 @@ services:
     env_file: .env
     volumes:
       - redis_data:/data
+    logging: *default-logging
+    mem_limit: 512m
+    mem_reservation: 64m
+    memswap_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    oom_score_adj: 500
 
 volumes:
   storage_data:
