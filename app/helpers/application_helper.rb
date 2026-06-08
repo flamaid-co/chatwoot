@@ -1,4 +1,10 @@
 module ApplicationHelper
+  # Override administrate's default (Rails module name "Chatwoot") for the
+  # Super Admin panel page titles → FLAMAID white-label.
+  def application_title
+    'FLAMAID'
+  end
+
   def available_locales_with_name
     LANGUAGES_CONFIG.map { |_key, val| val.slice(:name, :iso_639_1_code) }
   end
