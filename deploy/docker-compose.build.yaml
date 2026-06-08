@@ -1,0 +1,23 @@
+# FlamAid · build override
+# -------------------------
+# Compiles a CUSTOM Chatwoot image from THIS repo's source (docker/Dockerfile),
+# so your UI/backend edits are baked into the running app.
+#
+# Build context is the repo root (..), since the Dockerfile lives at docker/Dockerfile.
+#
+# Deploy with:
+#   docker compose -f docker-compose.yaml -f docker-compose.build.yaml up -d --build
+#
+# First build is slow (~10-20 min: Ruby gems + JS asset compilation). Subsequent
+# builds are cached. The flamaid host (16 cores) handles this comfortably.
+
+services:
+  rails:
+    image: flamaid/chatwoot:local
+    build: &flamaid_build
+      context: ..
+      dockerfile: docker/Dockerfile
+
+  sidekiq:
+    image: flamaid/chatwoot:local
+    build: *flamaid_build

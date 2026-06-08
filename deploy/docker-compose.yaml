@@ -1,0 +1,71 @@
+# FlamAid · Chatwoot production stack
+# -----------------------------------
+# Runs the OFFICIAL prebuilt image, pinned to the release this branch is based on.
+# Use this for fast deploys when you have NOT modified the source (UI/backend).
+#
+# If you edit the source (e.g. app/javascript for UI changes), deploy with the
+# build override so your changes are compiled into a custom image:
+#   docker compose -f docker-compose.yaml -f docker-compose.build.yaml up -d --build
+#
+# Notes vs upstream's docker-compose.production.yaml:
+#  - image pinned to a version (not :latest) for reproducible deploys
+#  - postgres/redis host ports removed (they talk over the internal network only;
+#    avoids clashing with Supabase's 5432 on the flamaid host)
+#  - postgres uses pgvector (needed for the future Claude RAG brain)
+
+services:
+  base: &base
+    image: chatwoot/chatwoot:v4.14.1
+    env_file: .env
+    volumes:
+      - storage_data:/app/storage
+
+  rails:
+    <<: *base
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - NODE_ENV=production
+      - RAILS_ENV=production
+      - INSTALLATION_ENV=docker
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    restart: always
+
+  sidekiq:
+    <<: *base
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - NODE_ENV=production
+      - RAILS_ENV=production
+      - INSTALLATION_ENV=docker
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    restart: always
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=chatwoot
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+
+  redis:
+    image: redis:alpine
+    restart: always
+    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\""]
+    env_file: .env
+    volumes:
+      - redis_data:/data
+
+volumes:
+  storage_data:
+  postgres_data:
+  redis_data:
