@@ -100,6 +100,33 @@ Chatwoot's frontend is Vue, under `app/javascript/`. Edit there, commit on
 `flamaid`, push, and deploy with **build mode**. Keep edits minimal to keep
 upstream merges painless (see the project memory: "brand, don't fork the engine").
 
+## White-label / build-mode rebrand — DONE (2026-06-08)
+
+Full FLAMAID white-label baked into a custom image. Source edits on `flamaid`:
+- **Color → Flame Red `#f32735`**: `theme/colors.js` (`n.brand` + `woot` scale via
+  radix `red`/`redDark`); all brand-blue hexes (`#1f93ff`/`#2781F6`) swapped across
+  scss/js/vue/erb; `public/manifest.json` + `vueapp.html.erb` theme-color.
+- **No "Chatwoot" text**: 70 mentions replaced across `app/javascript/**/i18n/locale/{en,es}`
+  + `config/locales/{en,es}.yml` → FLAMAID. (Name/title also via InstallationConfig.)
+- **Favicons/app icons**: all 30 `public/*icon*.png` regenerated with the FlamAid flame.
+
+**How it was built & deployed (preserves data volumes):**
+```bash
+# on the flamaid host
+git clone --depth 1 --branch flamaid https://github.com/flamaid-co/chatwoot.git /root/chatwoot-src
+cd /root/chatwoot-src && docker build -t flamaid/chatwoot:branded -f docker/Dockerfile .   # ~10-15 min
+# point the running stack at the built image (same compose project => same volumes => data kept)
+sed -i 's|image: chatwoot/chatwoot:v4.14.1|image: flamaid/chatwoot:branded|' /root/chatwoot/docker-compose.yaml
+cd /root/chatwoot && docker compose up -d
+```
+Build ran safely alongside Supabase (RAM never < 13G free, Supabase healthy throughout).
+To rebrand again: edit source on `flamaid`, push, re-clone/pull on server, rebuild, `up -d`.
+Verified E2E (Playwright): title "Centre de Support FLAMAID", Login button + `bg-n-brand`
+= `rgb(243,39,53)`, zero Chatwoot-blue, zero "Chatwoot" text.
+
+Still blue/legacy: the `n.blue` semantic scale (info states, not brand) is intentionally
+left as-is. Remaining cosmetic: `/favicon.ico` 404 (only PNG favicons replaced).
+
 ## Phase B — public HTTPS — DONE (2026-06-08)
 
 Live at **https://support.flamaid.com** (Let's Encrypt, proxied through the shared

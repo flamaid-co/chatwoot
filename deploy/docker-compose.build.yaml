@@ -13,11 +13,11 @@
 
 services:
   rails:
-    image: flamaid/chatwoot:local
+    image: flamaid/chatwoot:branded
     build: &flamaid_build
       context: ..
       dockerfile: docker/Dockerfile
 
   sidekiq:
-    image: flamaid/chatwoot:local
+    image: flamaid/chatwoot:branded
     build: *flamaid_build
