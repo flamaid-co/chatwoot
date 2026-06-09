@@ -69,9 +69,13 @@ class Inboxes::FetchImapEmailsJob < MutexApplicationJob
     rescue Timeout::Error
       mark_email_as_failed(inbound_mail.message_id)
       Rails.logger.error "[IMAP] Email processing timeout (#{email_processing_timeout}s): #{inbound_mail.message_id}"
-    rescue StandardError => e
+    rescue StandardError, SystemStackError => e
+      # Include SystemStackError: a "poison" email with deeply-nested HTML can
+      # blow the stack (html2text recursion). SystemStackError is not a
+      # StandardError, so without this it escapes and crashes the whole fetch,
+      # blocking ALL email ingestion for the channel. Isolate it per-email.
       mark_email_as_failed(inbound_mail.message_id)
-      Rails.logger.error "[IMAP] Failed to process email #{inbound_mail.message_id}: #{e.message}"
+      Rails.logger.error "[IMAP] Failed to process email #{inbound_mail.message_id}: #{e.class}: #{e.message}"
       ChatwootExceptionTracker.new(e, account: channel.account).capture_exception
     end
   end
